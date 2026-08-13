@@ -1,0 +1,17 @@
+{
+  "game": {
+    "window_width": 400,
+    "window_height": 780,
+    "grid_size": 4,
+    "animation_duration": 0.12,
+    "win_tile": 2048
+  },
+  "theme": "mobile",
+  "features": {
+    "enable_sound": false,
+    "enable_animations": true,
+    "enable_leaderboard": true,
+    "enable_swipe": true,
+    "leaderboard_size": 20
+  }
+}

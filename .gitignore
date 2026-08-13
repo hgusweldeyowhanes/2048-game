@@ -1,0 +1,35 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Local game data
+leaderboard.json
+statistics.json
+*.log
+
+# Buildozer / mobile build artifacts
+.buildozer/
+bin/
+*.apk
+*.aab
+*.ipa
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*

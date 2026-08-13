@@ -1,0 +1,23 @@
+2048 on your Android phone (Pydroid 3)
+=====================================
+
+1. On your phone, install "Pydroid 3" from Google Play Store.
+
+2. Open Pydroid 3 -> tap the 3-dot menu -> Pip
+   - Search: kivy
+   - Install kivy
+
+3. Copy this whole "phone_test" folder to your phone
+   (USB cable, Google Drive, Telegram to yourself, or WhatsApp).
+
+4. In Pydroid 3:
+   - Open file manager / Open
+   - Go to phone_test/main.py
+   - Tap the yellow Play button
+
+5. Play with SWIPE on the screen, or LEFT/DOWN/RIGHT/UP buttons.
+
+Tips:
+- Keep the phone in portrait mode.
+- If Kivy install fails, try: Pip -> Install -- kivy==2.2.1
+- Only main.py is required; this folder is enough.
