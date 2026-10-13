@@ -85,7 +85,7 @@ class Game2048Logic:
 
     def move(self, direction):
         """Move tiles in specified direction"""
-        if self.game_over or self.won:
+        if self.game_over:
             return False
 
         old_board = [row[:] for row in self.board]
@@ -132,13 +132,8 @@ class Game2048Logic:
 
     def check_game_state(self):
         """Check if game is won or over"""
-        # Check for 2048
-        for row in self.board:
-            if 2048 in row:
-                self.won = True
-                return
-
-        # Check for possible moves
+        if any(2048 in row for row in self.board):
+            self.won = True
         if not self.has_possible_moves():
             self.game_over = True
 
@@ -173,6 +168,31 @@ class Game2048Logic:
     def get_board(self):
         """Get current board state"""
         return self.board
+
+    def to_dict(self):
+        return {
+            'board': [row[:] for row in self.board],
+            'score': self.score,
+            'moves': self.moves,
+            'game_over': self.game_over,
+            'won': self.won,
+            'game_started': self.game_started,
+        }
+
+    def load_dict(self, data):
+        board = data.get('board')
+        if not isinstance(board, list) or len(board) != self.size:
+            return False
+        for row in board:
+            if not isinstance(row, list) or len(row) != self.size:
+                return False
+        self.board = [list(row) for row in board]
+        self.score = int(data.get('score', 0))
+        self.moves = int(data.get('moves', 0))
+        self.game_over = bool(data.get('game_over', False))
+        self.won = bool(data.get('won', False))
+        self.game_started = bool(data.get('game_started', False))
+        return True
 
 
 class LeaderboardManager:
@@ -350,8 +370,13 @@ class Game2048App(App):
         self.leaderboard = LeaderboardManager(
             os.path.join(data_dir, 'leaderboard.json')
         )
+        self._save_path = os.path.join(data_dir, 'save.json')
         self.best_score = self.leaderboard.get_best_score()
         self._touch_start = None
+        self._popup = None
+        self._win_dialog_shown = False
+        self._score_saved = False
+        self.load_progress()
 
         root = FloatLayout()
         with root.canvas.before:
@@ -386,6 +411,10 @@ class Game2048App(App):
             self.tile_labels.append(tile)
             self.grid.add_widget(tile)
         board_wrap.add_widget(self.grid)
+        board_wrap.bind(
+            on_touch_down=self.on_board_touch_down,
+            on_touch_up=self.on_board_touch_up,
+        )
         main_layout.add_widget(board_wrap)
 
         # Swipe hint
@@ -405,9 +434,57 @@ class Game2048App(App):
 
         self.update_display()
         self.bind_keyboard()
-        Window.bind(on_touch_down=self.on_touch_down, on_touch_up=self.on_touch_up)
-
+        if self.game.game_over:
+            Clock.schedule_once(lambda dt: self.show_game_over_dialog(), 0.2)
+        elif self.game.won and not self._win_dialog_shown:
+            Clock.schedule_once(lambda dt: self.show_won_dialog(), 0.2)
         return root
+
+    def on_pause(self):
+        self.save_progress()
+        return True
+
+    def on_stop(self):
+        self.save_progress()
+
+    def load_progress(self):
+        if not os.path.exists(self._save_path):
+            return
+        try:
+            with open(self._save_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if self.game.load_dict(data):
+                self._win_dialog_shown = bool(data.get('win_dialog_shown', self.game.won))
+                self._score_saved = bool(data.get('score_saved', False))
+        except Exception:
+            pass
+
+    def save_progress(self):
+        payload = self.game.to_dict()
+        payload['win_dialog_shown'] = self._win_dialog_shown
+        payload['score_saved'] = self._score_saved
+        try:
+            with open(self._save_path, 'w', encoding='utf-8') as f:
+                json.dump(payload, f)
+        except Exception:
+            pass
+
+    def persist_finished_score(self):
+        if self._score_saved or not self.game.game_over or self.game.score <= 0:
+            return
+        self.leaderboard.save_score(self.game.score, self.game.moves)
+        self._score_saved = True
+        if self.game.score > self.best_score:
+            self.best_score = self.game.score
+        self.best_display.text = str(max(self.best_score, self.game.score))
+
+    def open_popup(self, popup):
+        self._popup = popup
+        popup.bind(on_dismiss=self._on_popup_dismiss)
+        popup.open()
+
+    def _on_popup_dismiss(self, *_args):
+        self._popup = None
 
     def create_header(self):
         header = BoxLayout(orientation='vertical', size_hint_y=0.16, spacing=dp(8))
@@ -507,12 +584,15 @@ class Game2048App(App):
         arrows.add_widget(arrow('RIGHT', 'right'))
         return arrows
 
-    def on_touch_down(self, window, touch):
+    def on_board_touch_down(self, widget, touch):
+        if self._popup or not widget.collide_point(*touch.pos):
+            return False
         self._touch_start = (touch.x, touch.y)
         return False
 
-    def on_touch_up(self, window, touch):
-        if not self._touch_start:
+    def on_board_touch_up(self, widget, touch):
+        if self._popup or not self._touch_start:
+            self._touch_start = None
             return False
         dx = touch.x - self._touch_start[0]
         dy = touch.y - self._touch_start[1]
@@ -529,6 +609,12 @@ class Game2048App(App):
         Window.bind(on_keyboard=self.on_keyboard)
 
     def on_keyboard(self, window, key, scancode, codepoint, modifier):
+        # Let Android Back / Esc leave the app or close a popup.
+        if key in (27, 1001):
+            if self._popup:
+                self._popup.dismiss()
+                return True
+            return False
         key_map = {
             273: 'up',
             274: 'down',
@@ -541,19 +627,26 @@ class Game2048App(App):
         }
         if key in key_map:
             self.move_game(key_map[key])
-        return True
+            return True
+        return False
 
     def move_game(self, direction):
+        if self._popup:
+            return
         if self.game.move(direction):
             self.update_display()
-            if self.game.won:
-                Clock.schedule_once(lambda dt: self.show_won_dialog(), 0.35)
-            elif self.game.game_over:
+            self.save_progress()
+            if self.game.game_over:
                 Clock.schedule_once(lambda dt: self.show_game_over_dialog(), 0.35)
+            elif self.game.won and not self._win_dialog_shown:
+                self._win_dialog_shown = True
+                self.save_progress()
+                Clock.schedule_once(lambda dt: self.show_won_dialog(), 0.35)
 
     def update_display(self):
         self.score_display.text = str(self.game.score)
         self.moves_display.text = str(self.game.moves)
+        self.best_display.text = str(max(self.best_score, self.game.score))
 
         for i in range(16):
             row, col = divmod(i, 4)
@@ -566,15 +659,18 @@ class Game2048App(App):
                 Animation(opacity=1, duration=ANIMATION_DURATION).start(tile)
 
     def reset_game(self, instance):
-        if self.game.score > self.best_score:
-            self.best_score = self.game.score
-            self.leaderboard.save_score(self.game.score, self.game.moves)
-            self.best_display.text = str(self.best_score)
-
+        self.persist_finished_score()
         self.game.reset()
+        self._win_dialog_shown = False
+        self._score_saved = False
         self.update_display()
+        self.save_progress()
 
     def show_game_over_dialog(self):
+        if self._popup:
+            return
+        self.persist_finished_score()
+        self.save_progress()
         content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
         content.add_widget(Label(
             text=f'Game Over\n\nScore: {self.game.score}\nMoves: {self.game.moves}',
@@ -599,9 +695,11 @@ class Game2048App(App):
         )
         new_game_btn.bind(on_press=lambda x: self.close_and_reset(popup))
         leaderboard_btn.bind(on_press=lambda x: self.close_and_show_leaderboard(popup))
-        popup.open()
+        self.open_popup(popup)
 
     def show_won_dialog(self):
+        if self._popup:
+            return
         content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
         content.add_widget(Label(
             text=f'You reached 2048!\n\nScore: {self.game.score}\nMoves: {self.game.moves}\n\nKeep going?',
@@ -626,7 +724,7 @@ class Game2048App(App):
         )
         continue_btn.bind(on_press=popup.dismiss)
         new_game_btn.bind(on_press=lambda x: self.close_and_reset(popup))
-        popup.open()
+        self.open_popup(popup)
 
     def show_leaderboard(self, instance):
         scores = self.leaderboard.get_top_scores(20)
@@ -680,7 +778,7 @@ class Game2048App(App):
             title_color=Game2048UI.TEXT_WHITE,
         )
         close_btn.bind(on_press=popup.dismiss)
-        popup.open()
+        self.open_popup(popup)
 
     def close_and_reset(self, popup):
         popup.dismiss()
