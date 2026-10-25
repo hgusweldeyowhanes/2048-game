@@ -1,7 +1,4 @@
-"""
-2048 — mobile neon UI (Kivy)
-Swipe or arrow controls, score + leaderboard.
-"""
+
 
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
